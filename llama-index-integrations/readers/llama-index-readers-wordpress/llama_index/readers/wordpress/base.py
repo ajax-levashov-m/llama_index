@@ -19,6 +19,7 @@ class WordpressReader(BaseReader):
         get_posts (bool): Retrieve WordPress 'posts' (blog entries). Default True.
         additional_post_types (Optional[str]): Comma-separated list of additional post types to retrieve
                                                (e.g., 'my-custom-page,webinars'). Default is None.
+        page_limit (Optional[int]): Maximum number of pages to fetch per post type. Default is None (no limit).
 
     """
 
@@ -30,11 +31,13 @@ class WordpressReader(BaseReader):
         get_pages: bool = True,
         get_posts: bool = True,
         additional_post_types: Optional[str] = None,
+        page_limit: Optional[int] = None,
     ) -> None:
         """Initialize Wordpress reader."""
         self.url = url
         self.username = username
         self.password = password
+        self.page_limit = page_limit
 
         # Use a set to prevent duplicates
         self.post_types = set()
@@ -108,13 +111,19 @@ class WordpressReader(BaseReader):
         """Retrieve all posts of a specific type, handling pagination."""
         posts = []
         next_page = 1
+        pages_fetched = 0
 
         while True:
             response = self.get_posts_page(post_type, next_page)
             posts.extend(response["articles"])
             next_page = response["next_page"]
+            pages_fetched += 1
 
             if next_page is None:
+                break
+                
+            # Check page limit
+            if self.page_limit is not None and pages_fetched >= self.page_limit:
                 break
 
         return posts
@@ -129,11 +138,17 @@ class WordpressReader(BaseReader):
         auth = (
             (self.username, self.password) if self.username and self.password else None
         )
-        response = requests.get(url, auth=auth)
+        
+        # Set user agent
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+        }
+        
+        response = requests.get(url, auth=auth, headers=headers)
         response.raise_for_status()  # Raise an error for bad responses
 
-        headers = response.headers
-        num_pages = int(headers.get("X-WP-TotalPages", 1))
+        response_headers = response.headers
+        num_pages = int(response_headers.get("X-WP-TotalPages", 1))
         next_page = current_page + 1 if num_pages > current_page else None
 
         articles = response.json()
